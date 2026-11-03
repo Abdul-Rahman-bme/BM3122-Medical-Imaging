@@ -1,0 +1,53 @@
+{
+  "name": "bm3122-medical-imaging-prep",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "dev": "node scripts/next-local.mjs dev --webpack",
+    "build": "node scripts/next-local.mjs build --webpack",
+    "start": "node scripts/next-local.mjs start",
+    "db:init": "tsx scripts/init-db.ts",
+    "assets": "node scripts/copy-pdf-assets.mjs",
+    "postinstall": "npm run assets",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "npm run build && playwright test",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.2.0",
+    "@tailwindcss/postcss": "^4.1.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "fflate": "^0.8.2",
+    "katex": "^0.16.22",
+    "lucide-react": "latest",
+    "next": "^16.0.0",
+    "pdfjs-dist": "^5.4.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.0.0",
+    "tailwind-merge": "^3.0.0",
+    "tailwindcss": "^4.1.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/katex": "^0.16.7",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9.39.5",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^4.0.0"
+  },
+  "optionalDependencies": {
+    "@next/swc-win32-x64-msvc": "^16.4.4",
+    "@tailwindcss/oxide-win32-x64-msvc": "^4.3.4"
+  }
+}

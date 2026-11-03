@@ -1,0 +1,46 @@
+import {test,expect} from '@playwright/test';
+import {readFileSync} from 'node:fs';
+const content=JSON.parse(readFileSync('data/content.json','utf8'));
+async function action(request:any,action:string,payload:unknown){const r=await request.post('/api/action',{data:{action,payload}});expect(r.ok(),await r.text()).toBeTruthy();return r.json();}
+test('complete import, search, original grouping and responsive offline dashboard',async({page,request})=>{
+ const state=await (await request.get('/api/state')).json();expect(state.questions).toHaveLength(96);expect(state.papers).toHaveLength(4);
+ await page.goto('/');await expect(page.getByRole('heading',{name:'Preparation overview'})).toBeVisible();await page.screenshot({path:'test-results/dashboard-desktop.png',fullPage:true});
+ await page.goto('/questions');await page.getByLabel('Topic',{exact:true}).selectOption('MRI');await expect(page.getByText(/questions ·/)).toBeVisible();await page.getByLabel('Search questions').fill('Ernst');await expect(page.locator('.question-row').first()).toBeVisible();await expect(page.locator('.question-group-head').first()).toContainText('Question');
+ await page.setViewportSize({width:390,height:844});await page.goto('/');await expect(page.getByRole('heading',{name:'Preparation overview'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.getByRole('button',{name:'Open navigation'}).click();await expect(page.getByRole('link',{name:'Question bank'})).toBeVisible();await page.screenshot({path:'test-results/dashboard-mobile.png',fullPage:true});
+});
+test('theory drafts, math, rubric self-assessment, notes, bookmarks and scheduling persist',async({page,request})=>{
+ await page.goto('/questions/model-1-q1-a');const answer=page.getByLabel('Answer and working');await answer.fill('Spatial resolution separates adjacent features. $I=O*h$ for a linear shift-invariant system.');await expect(page.locator('.study-nav').getByText(/Saved on this PC/)).toBeVisible();await page.getByRole('button',{name:'Show math preview'}).click();await expect(page.locator('.katex').first()).toBeVisible();
+ await page.getByRole('button',{name:'Bookmark question'}).click();await page.getByLabel('Personal notes').fill('Remember $\\sigma$ and point response.');await page.getByLabel('Personal notes').blur();await page.waitForTimeout(1000);
+ await page.getByLabel('Self-assessed marks').fill('3');await page.getByRole('button',{name:'Save self-assessment'}).click();await expect(page.getByText('Saved 3/3 · self')).toBeVisible();
+ await page.getByRole('button',{name:'Good',exact:true}).click();await page.reload();await expect(page.getByLabel('Answer and working')).toHaveValue(/Spatial resolution/);await expect(page.getByLabel('Personal notes')).toHaveValue(/Remember/);
+ const state=await (await request.get('/api/state')).json();expect(state.progress['model-1-q1-a'].bookmarked).toBe(true);expect(state.progress['model-1-q1-a'].dueAt).toBeGreaterThan(Date.now());expect(state.attempts.some((a:any)=>a.questionId==='model-1-q1-a'&&a.assessment?.method==='self')).toBe(true);
+ await page.goto('/bookmarks');await expect(page.locator('a[href="/questions/model-1-q1-a"]').first()).toBeVisible();
+});
+test('numerical checking uses equivalent units and never awards unseen working marks',async({page,request})=>{
+ const q=content.questions.find((q:any)=>q.numerical&&q.numerical.unit==='MBq');expect(q).toBeTruthy();await page.goto(`/questions/${q.id}`);await page.getByLabel('Final numerical answer').fill(String(q.numerical.value/1000));await page.getByLabel('Units',{exact:true}).fill('GBq');await page.getByRole('button',{name:'Check final value'}).click();await expect(page.getByRole('status').filter({hasText:'Within tolerance'})).toBeVisible();
+ await page.getByRole('button',{name:'Next solution step'}).click();await expect(page.locator('.solution-step').first()).toBeVisible();await page.screenshot({path:'test-results/practice-numerical.png',fullPage:true});
+ const state=await (await request.get('/api/state')).json();const a=state.attempts.find((a:any)=>a.questionId===q.id);expect(a?.assessment?.method).not.toBe('automatic');
+});
+test('diagram strokes are stored locally and can be resumed',async({page,request})=>{
+ await page.goto('/questions/model-1-q3-c');const canvas=page.getByLabel('Drawing workspace. Use your pointer or upload a drawing.');await expect(canvas).toBeVisible();const box=await canvas.boundingBox();expect(box).not.toBeNull();await page.mouse.move(box!.x+40,box!.y+50);await page.mouse.down();await page.mouse.move(box!.x+150,box!.y+100,{steps:8});await page.mouse.up();await expect(page.locator('.study-nav').getByText(/Saved on this PC/)).toBeVisible();
+ const state=await (await request.get('/api/state')).json();const session=state.sessions.find((s:any)=>s.questionIds.length===1&&s.questionIds[0]==='model-1-q3-c');const full=await (await request.get(`/api/session/${session.id}`)).json();expect(full.answers['model-1-q3-c'].sketch).toMatch(/^\/api\/drawings\//);const img=await request.get(full.answers['model-1-q3-c'].sketch);expect(img.ok()).toBe(true);expect(img.headers()['content-type']).toBe('image/png');
+});
+test('timed examination hides feedback, saves and resumes, then locks submitted answers',async({page,request})=>{
+ const s=await action(request,'create-session',{kind:'exam',paperId:'model-2'});await page.goto(`/exam/session/${s.id}`);await expect(page.getByRole('timer')).toBeVisible();await expect(page.getByRole('button',{name:'Show solution',exact:true})).toHaveCount(0);await expect(page.getByText('Assess your answer',{exact:true})).toHaveCount(0);await page.getByLabel('Answer and working').fill('My examination response, preserved across reloads.');await expect(page.locator('.study-nav').getByText(/Saved on this PC/)).toBeVisible();await page.getByRole('button',{name:'Flag for review'}).click();await page.reload();await expect(page.getByLabel('Answer and working')).toHaveValue(/preserved/);await page.screenshot({path:'test-results/examination.png',fullPage:true});
+ await page.getByRole('button',{name:'Submit examination',exact:true}).click();await page.getByRole('button',{name:'Confirm submission'}).click();await expect(page).toHaveURL(/\/results\//);await expect(page.getByText('Provisional · self-assessment pending')).toBeVisible();await expect(page.getByLabel('Answer and working')).toBeDisabled();
+ const result=await (await request.get(`/api/session/${s.id}`)).json();expect(result.status).toBe('submitted');const mutation=await request.post('/api/action',{data:{action:'save-answer',payload:{sessionId:s.id,questionId:s.questionIds[0],answer:{text:'Changed',final:'',unit:''}}}});expect(mutation.status()).toBe(400);
+});
+test('PDF references, ranged assets, JSON validation and complete backup restore work',async({page,request})=>{
+ await page.goto('/resources?doc=s4');await expect(page.getByText('This PDF is supplied locally.',{exact:false})).toBeVisible();
+ const pdf=await request.get('/api/assets/report-papers',{headers:{Range:'bytes=0-127'}});expect(pdf.status()).toBe(206);expect((await pdf.body()).subarray(0,5).toString()).toBe('%PDF-');
+ await page.goto('/resources?doc=report-papers&page=2');await expect(page.getByRole('spinbutton',{name:'PDF page',exact:true})).toHaveValue('2');await expect(page.getByText('Rendering this page…')).toHaveCount(0,{timeout:30000});await expect(page.locator('.pdf-canvas canvas')).toBeVisible();await page.screenshot({path:'test-results/source-pdf.png',fullPage:true});
+ const invalid=await request.post('/api/action',{data:{action:'import',payload:{...content,questions:[...content.questions,content.questions[0]]}}});expect(invalid.status()).toBe(400);
+ const exported=await (await request.get('/api/export')).json();expect(exported.questions).toHaveLength(96);
+ await action(request,'progress',{questionId:'model-1-q1-a',value:{notes:'Known notes before backup'}});
+ const backup=await request.get('/api/export?kind=backup');expect(backup.ok()).toBe(true);const zip=await backup.body();expect(zip.length).toBeGreaterThan(10000);await action(request,'progress',{questionId:'model-1-q1-a',value:{notes:'Temporary change after backup'}});
+ const restored=await request.post('/api/restore',{data:zip,headers:{'Content-Type':'application/zip'}});expect(restored.ok(),await restored.text()).toBe(true);const state=await (await request.get('/api/state')).json();expect(state.progress['model-1-q1-a'].notes).toBe('Known notes before backup');
+});
+test('all required pages and core assets work with external network requests blocked',async({page})=>{
+ await page.route('**/*',route=>{const u=new URL(route.request().url());return ['127.0.0.1','localhost'].includes(u.hostname)||u.protocol==='data:'?route.continue():route.abort();});
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));for(const route of ['/','/questions','/practice','/papers','/analytics','/revision','/bookmarks','/resources','/settings']){await page.goto(route);await expect(page.locator('main h1')).toBeVisible();}expect(errors).toEqual([]);await page.getByRole('button',{name:'Switch to dark theme'}).click();await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await page.screenshot({path:'test-results/settings-dark.png',fullPage:true});
+});

@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS papers (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, paper_id TEXT NOT NULL, main_question INTEGER NOT NULL, data TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS questions_paper ON questions(paper_id,main_question);
+CREATE TABLE IF NOT EXISTS progress (question_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, question_id TEXT NOT NULL, session_id TEXT NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS attempts_question ON attempts(question_id,at);
+CREATE TABLE IF NOT EXISTS preferences (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+INSERT OR IGNORE INTO migrations(version,applied_at) VALUES (1,unixepoch()*1000);
